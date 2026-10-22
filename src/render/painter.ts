@@ -7,6 +7,7 @@ import rasterBoundsAttributes from '../data/raster_bounds_attributes.ts';
 import posAttributes from '../data/pos_attributes.ts';
 import {Context} from '../webgl/context.ts';
 import {ProgramCache} from '../webgl/program_cache.ts';
+import {DepthMode} from '../webgl/depth_mode.ts';
 import {StencilMode} from '../webgl/stencil_mode.ts';
 import {ColorMode} from '../webgl/color_mode.ts';
 import {CullFaceMode} from '../webgl/cull_face_mode.ts';
@@ -59,6 +60,20 @@ export type RTTObject = {
  * Initialize a new painter object.
  */
 export class Painter {
+    /** The style used by the active frame, exposed for renderer adapters. */
+    style: Style;
+    /** The transform used by the active frame, exposed for renderer adapters. */
+    transform: IReadonlyTransform;
+    /** The legacy render-state view kept for external layer adapters. */
+    options: FrameRenderData;
+    /** The legacy name for the active pass. */
+    renderPass: FrameRenderContext['currentPass'] = 'offscreen';
+    /** The active frame context, when a frame is being rendered. */
+    frameRenderContext: FrameRenderContext;
+    /** A private program cache used by adapters that compile custom programs. */
+    cache: Record<string, unknown> = {};
+    /** Legacy flag read by custom WeatherEarth shader adapters. */
+    _showOverdrawInspector = false;
     drawFunctions: DrawFunctions;
     context: Context;
     renderToTexture: IRenderToTexture;
@@ -234,6 +249,11 @@ export class Painter {
     render(style: Style, transform: IReadonlyTransform, data: FrameRenderData): void {
         if (this.context.gl.isContextLost()) return;
 
+        this.style = style;
+        this.transform = transform;
+        this.options = data;
+        this._showOverdrawInspector = data.showOverdrawInspector;
+
         const frameRenderContext = new FrameRenderContext({
             transform,
             terrain: style.map.terrain ?? null,
@@ -243,6 +263,7 @@ export class Painter {
             currentPass: 'offscreen',
             projection: style.projection
         });
+        this.frameRenderContext = frameRenderContext;
 
         this.lineAtlas = style.lineAtlas;
         this.patternAtlas = style.patternAtlas;
@@ -292,6 +313,7 @@ export class Painter {
         // framebuffer, and then save those for rendering back to the map
         // later: in doing this we avoid doing expensive framebuffer restores.
         frameRenderContext.currentPass = 'offscreen';
+        this.renderPass = 'offscreen';
 
         for (const layerId of layerIds) {
             const layer = style._layers[layerId];
@@ -320,6 +342,7 @@ export class Painter {
         // Draw opaque layers top-to-bottom first.
         if (!this.renderToTexture) {
             frameRenderContext.currentPass = 'opaque';
+            this.renderPass = 'opaque';
 
             for (frameRenderContext.currentLayer = layerIds.length - 1; frameRenderContext.currentLayer >= 0; frameRenderContext.currentLayer--) {
                 const layer = style._layers[layerIds[frameRenderContext.currentLayer]];
@@ -335,6 +358,7 @@ export class Painter {
         // Translucent pass ===============================================
         // Draw all other layers bottom-to-top.
         frameRenderContext.currentPass = 'translucent';
+        this.renderPass = 'translucent';
 
         let globeDepthRendered = false;
 
@@ -385,6 +409,40 @@ export class Painter {
         // Set defaults for most GL values so that anyone using the state after the render
         // encounters more expected values.
         this.context.setDefault();
+        this.frameRenderContext = undefined;
+    }
+
+    /** Returns the current pass color state for legacy custom layer adapters. */
+    colorModeForRenderPass(): Readonly<ColorMode> {
+        return this.frameRenderContext?.colorModeForRenderPass() ?? ColorMode.alphaBlended;
+    }
+
+    /** Returns the current pass depth state for legacy custom layer adapters. */
+    getDepthModeForSublayer(n: number, mask: any, func?: any): Readonly<DepthMode> {
+        return this.frameRenderContext?.getDepthModeForSublayer(n, mask, func) ?? DepthMode.disabled;
+    }
+
+    /** Returns the current 3D depth state for legacy custom layer adapters. */
+    getDepthModeFor3D(): Readonly<DepthMode> {
+        return this.frameRenderContext?.getDepthModeFor3D() ?? DepthMode.disabled;
+    }
+
+    /** Returns the overlap stencil configuration for legacy custom layer adapters. */
+    getStencilConfigForOverlapAndUpdateStencilID(tileIDs: OverscaledTileID[]): [Record<number, Readonly<StencilMode>>, OverscaledTileID[]] {
+        return this.frameRenderContext?.getStencilConfigForOverlapAndUpdateStencilID(tileIDs) ?? [{}, tileIDs];
+    }
+
+    /** Returns the two-pass overlap stencil configuration for legacy custom layer adapters. */
+    stencilConfigForOverlapTwoPass(tileIDs: OverscaledTileID[]): [Record<number, Readonly<StencilMode>>, Record<number, Readonly<StencilMode>>, OverscaledTileID[]] {
+        return this.frameRenderContext?.stencilConfigForOverlapTwoPass(tileIDs) ?? [{}, {}, tileIDs];
+    }
+
+    /** Sets the standard custom-layer state used by the legacy adapter surface. */
+    setCustomLayerDefaults(): void {
+        this.context.setDepthMode(DepthMode.disabled);
+        this.context.setStencilMode(StencilMode.disabled);
+        this.context.setColorMode(this.colorModeForRenderPass());
+        this.context.setCullFace(CullFaceMode.disabled);
     }
 
     /**

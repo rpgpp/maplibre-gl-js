@@ -451,6 +451,21 @@ export class TileManager extends Evented<SourceEventType> {
         return this._inViewTiles.getLoadedTile(tileID);
     }
 
+    /** Returns a loaded ancestor for renderer adapters that use the pre-6.0 source cache API. */
+    findLoadedParent(tileID: OverscaledTileID, minCoveringZoom: number = 0): Tile | null {
+        for (let zoom = tileID.overscaledZ - 1; zoom >= minCoveringZoom; zoom--) {
+            const parentID = tileID.scaledTo(zoom);
+            const tile = this.getLoadedTile(parentID) ?? this._outOfViewCache.get(parentID);
+            if (tile?.hasData()) return tile;
+        }
+        return null;
+    }
+
+    /** Returns the loaded tile under the legacy sibling lookup name. */
+    findLoadedSibling(tileID: OverscaledTileID): Tile | null {
+        return this.getLoadedTile(tileID) ?? this._outOfViewCache.get(tileID);
+    }
+
     /**
      * Resizes the tile cache based on the current viewport's size
      * or the maxTileCacheSize option passed during map creation

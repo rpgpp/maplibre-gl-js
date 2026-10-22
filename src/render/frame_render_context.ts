@@ -107,6 +107,11 @@ export class FrameRenderContext {
     private nextStencilID: number = 1;
     private tileClippingMaskIDs: Record<string, number> = {};
 
+    /** Compatibility view used by WeatherEarth custom layer adapters. */
+    get isRenderingGlobe(): boolean {
+        return this.data.isRenderingGlobe;
+    }
+
     constructor(options: FrameRenderContextOptions) {
         this.transform = options.transform;
         this.terrain = options.terrain;

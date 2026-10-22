@@ -124,6 +124,8 @@ function glyphsEqual(a: StyleGlyph, b: StyleGlyph): boolean {
 export class GlyphManager {
     requestManager: RequestManager;
     localIdeographFontFamily: string | false;
+    /** Returns unavailable glyphs as null instead of rasterizing them locally. */
+    allowMissingGlyphs = false;
     entries: Record<string, Entry>;
     url: string;
     lang?: string;
@@ -237,9 +239,9 @@ export class GlyphManager {
         // If the style hasn’t opted into server-side fonts, this codepoint is CJK or in a script that
         // forms clusters, or this is a cluster that a codepoint-keyed glyphs URL cannot serve, draw the
         // glyph locally and cache it.
-        if (!this.url || isCluster(id) || this._charUsesLocalIdeographFontFamily(codePoint) ||
+        if ((!this.url && this.allowMissingGlyphs) || isCluster(id) || this._charUsesLocalIdeographFontFamily(codePoint) ||
             codePointIsInComplexShapingScript(codePoint)) {
-            glyph = await this._drawGlyph(entry, stack, id);
+            glyph = this.allowMissingGlyphs && !this.url ? null : await this._drawGlyph(entry, stack, id);
             glyphs[id] = glyph;
             return {stack, id, variant, glyph};
         }
@@ -292,6 +294,11 @@ export class GlyphManager {
             entry.ranges[range] = true;
             return {stack, id, glyph: response[codePoint] || null};
         } catch (e) {
+            if (this.allowMissingGlyphs) {
+                entry.ranges[range] = true;
+                entry.glyphs.default[id] = null;
+                return {stack, id, glyph: null};
+            }
             // Fall back to drawing the glyph locally and caching it.
             const glyph = await this._drawGlyph(entry, stack, id);
             entry.glyphs.default[id] = glyph;

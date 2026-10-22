@@ -82,6 +82,29 @@ import type {DashEntry} from './render/line_atlas.ts';
 import type {Painter} from './render/painter.ts';
 import type {WorkerGlobalScopeInterface} from './util/web_worker.ts';
 import type {TerrainHeightMapTarget} from './render/terrain.ts';
+import BasicRenderer, {
+    type BasicRendererColor,
+    type BasicRendererGlyph,
+    type BasicRendererGlyphBitmap,
+    type BasicRendererGlyphMetrics,
+    type BasicRendererGlyphResponse,
+    type BasicRendererOptions,
+    type BasicRendererRenderCallback,
+    type BasicRendererRenderResult,
+    type BasicRendererSprite,
+    type BasicRendererSpriteEntry,
+    type BasicRendererSpriteImage,
+    type BasicRendererSymbol,
+    type BasicRendererTextMode,
+    type BasicRendererTextSymbol
+} from './vtrender/BasicRenderer.ts';
+import BasicGlyphProvider, {type BasicGlyphProviderOptions} from './vtrender/BasicGlyphProvider.ts';
+import {Program} from './webgl/program.ts';
+import {shaders} from './shaders/shaders.ts';
+import * as uniform_binding from './webgl/uniform_binding.ts';
+import {StencilMode} from './webgl/stencil_mode.ts';
+import {CullFaceMode} from './webgl/cull_face_mode.ts';
+import {DepthMode} from './webgl/depth_mode.ts';
 const version = packageJSON.version;
 
 export type * from '@maplibre/maplibre-gl-style-spec';
@@ -440,5 +463,28 @@ export {
     restoreNow,
     isTimeFrozen,
     getGlobalDispatcher,
-    EXTENT
+    EXTENT,
+    BasicRenderer,
+    BasicGlyphProvider,
+    type BasicGlyphProviderOptions,
+    type BasicRendererColor,
+    type BasicRendererGlyph,
+    type BasicRendererGlyphBitmap,
+    type BasicRendererGlyphMetrics,
+    type BasicRendererGlyphResponse,
+    type BasicRendererOptions,
+    type BasicRendererRenderCallback,
+    type BasicRendererRenderResult,
+    type BasicRendererSprite,
+    type BasicRendererSpriteEntry,
+    type BasicRendererSpriteImage,
+    type BasicRendererSymbol,
+    type BasicRendererTextMode,
+    type BasicRendererTextSymbol,
+    Program,
+    shaders,
+    uniform_binding,
+    StencilMode,
+    CullFaceMode,
+    DepthMode
 };

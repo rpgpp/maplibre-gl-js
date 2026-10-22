@@ -209,6 +209,12 @@ export class Tile {
         this.fadeOpacity = 1;
     }
 
+    /** Extends the raster fade deadline without shortening a deadline already registered. */
+    registerFadeDuration(duration: number): void {
+        const fadeEndTime = duration + this.timeAdded;
+        if (fadeEndTime >= this.fadeEndTime) this.fadeEndTime = fadeEndTime;
+    }
+
     wasRequested(): boolean {
         return this.state === 'errored' || this.state === 'loaded' || this.state === 'reloading';
     }
