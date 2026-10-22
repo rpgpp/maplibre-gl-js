@@ -5,18 +5,19 @@ import {EvaluationParameters} from '../style/evaluation_parameters.ts';
 import {RequestManager} from '../util/request_manager.ts';
 import {MercatorTransform, type MercatorTransform as Transform} from '../geo/projection/mercator_transform.ts';
 import {OverscaledTileID} from '../tile/tile_id.ts';
-
 import BasicPainter from './BasicPainter.ts';
 import BasicStyle from './BasicStyle.ts';
-import type BasicSourceCache from './BasicSourceCache.ts';
 import {now} from '../util/time_control.ts';
 import {Formatted, ResolvedImage} from '@maplibre/maplibre-gl-style-spec';
-import type {FrameRenderData} from '../render/frame_render_context.ts';
 import {toEvaluationFeature} from '../data/evaluation_feature.ts';
 import {transformText} from '../symbol/transform_text.ts';
 import {evaluateVariableOffset, INVALID_TEXT_OFFSET} from '../style/style_layer/variable_text_anchor.ts';
 import ONE_EM from '../symbol/one_em.ts';
 import {getOverlapMode} from '../style/style_layer/overlap_mode.ts';
+
+import type {FrameRenderData} from '../render/frame_render_context.ts';
+import type BasicSourceCache from './BasicSourceCache.ts';
+import type {AllLayoutProperties, AllPaintProperties} from '@maplibre/maplibre-gl-style-spec';
 
 const DEFAULT_RESOLUTION = 256;
 const OFFSCREEN_CANV_SIZE = 1024;
@@ -165,6 +166,49 @@ export type BasicRendererOptions = {
     textMode?: BasicRendererTextMode;
 };
 
+/**
+ * One source tile of an explicit render request, placed on the imaginary canvas the renderer
+ * draws into before copying regions of it out to each consumer.
+ */
+export type BasicRendererTileSpec = {
+    source: string;
+    z: number;
+    x: number;
+    y: number;
+    left: number;
+    top: number;
+    size: number;
+};
+
+/** The region of the imaginary canvas one consumer copies out, in canvas and destination pixels. */
+export type BasicRendererDrawSpec = {
+    destLeft: number;
+    destTop: number;
+    srcLeft: number;
+    srcTop: number;
+    width: number;
+    height: number;
+};
+
+/** A consumer of a pending render, resolved with the result once every tile it needs is loaded. */
+export type BasicRendererConsumer = {
+    ctx: CanvasRenderingContext2D;
+    drawSpec: BasicRendererDrawSpec;
+    tilesSpec: BasicRendererTileSpec[];
+    next: BasicRendererRenderCallback;
+};
+
+/**
+ * Handle returned by {@link BasicRenderer.renderTiles}, to be handed back to
+ * {@link BasicRenderer.releaseRender} once the drawn region leaves the screen.
+ */
+export type BasicRendererRenderRef = {
+    renderId: number;
+    consumer: BasicRendererConsumer;
+    tiles: any[];
+    tileSetID: string;
+};
+
 function toExternalColor(color: any): BasicRendererColor {
     const alpha = Number(color?.a ?? 0);
     if (!(alpha > 0)) return {r: 0, g: 0, b: 0, a: 0};
@@ -225,7 +269,7 @@ class BasicRenderer extends Evented {
     _pendingRenders: Map<any, any>;
     _nextRenderId: number;
     _configId: number;
-    _queuedConfigChanges: Array<any>;
+    _queuedConfigChanges: any[];
     _tmpMat4f64b: Float32Array;
     _tmpMat4f64: Float64Array;
     _tmpMat4f32: Float32Array;
@@ -321,12 +365,12 @@ class BasicRenderer extends Evented {
         this.style = this._style;
     }
 
-    getPixelRatio() {
+    getPixelRatio(): number {
         return 1;
     }
 
     /** Exposes the terrain slot expected by the shared Style and Painter code. */
-    get terrain() {
+    get terrain() :any {
         return this._terrain;
     }
 
@@ -451,7 +495,8 @@ class BasicRenderer extends Evented {
         };
     }
 
-    migrateProjection(newTransform, cameraHelper) {
+    /** Kept for callers that switch projections; the offscreen renderer always draws in Mercator. */
+    migrateProjection(newTransform: any, cameraHelper: any): void {
         // this.transform = newTransform;
         // newTransform.calculatePosMatrix = (tileID: any) => tileID.posMatrix
         // newTransform.resize(OFFSCREEN_CANV_SIZE, OFFSCREEN_CANV_SIZE)
@@ -459,18 +504,18 @@ class BasicRenderer extends Evented {
         // newTransform.apply(this.transform);
     }
 
-    setTerrain(terrain) { this._terrain = terrain; }
-    getTerrain() { return this._terrain; }
+    setTerrain(terrain: any): void { this._terrain = terrain; }
+    getTerrain(): any { return this._terrain; }
 
-    _getMapId() {
+    _getMapId(): number {
         return 1;
     }
 
-    _onReady() {
+    _onReady(): void {
         this._style.update(new EvaluationParameters(16));
     }
 
-    _calculatePosMatrix(transX, transY, tileSize) {
+    _calculatePosMatrix(transX: number, transY: number, tileSize: number): Float32Array {
     /*
       The returned matrix, M, is designed to be used as:
         X_gl_coords = M * X_mvt_data_coords
@@ -522,18 +567,16 @@ class BasicRenderer extends Evented {
         return this._tmpMat4f32;
     }
 
-    _createGlContext() {
-        // eslint-disable-next-line no-restricted-properties
-        const attributes = Object.assign(
-            {
-                failIfMajorPerformanceCaveat: false,
-                preserveDrawingBuffer: false,
-                alpha: true,
-                stencil: true,
-                depth: true,
-            }
+    _createGlContext(): void {
+
+        const attributes = {
+            failIfMajorPerformanceCaveat: false,
+            preserveDrawingBuffer: false,
+            alpha: true,
+            stencil: true,
+            depth: true,
             //isSupported.webGLContextAttributes
-        );
+        };
 
         this._gl = this._canvas.getContext('webgl2', attributes);
         if (!this._gl) {
@@ -545,13 +588,13 @@ class BasicRenderer extends Evented {
         this.painter.style = this._style;
     }
 
-    _evaluateStyleValue(value, feature, canonical) {
+    _evaluateStyleValue(value: any, feature: any, canonical: any): any {
         return value && typeof value.evaluate === 'function'
             ? value.evaluate(feature, {}, canonical, this._style._availableImages)
             : value;
     }
 
-    _getTextOffset(layer, feature, canonical, anchor: string, fontSize: number): [number, number] {
+    _getTextOffset(layer: any, feature: any, canonical: any, anchor: string, fontSize: number): [number, number] {
         const layout = layer.layout;
         const radialOffset = Number(this._evaluateStyleValue(layout.get('text-radial-offset'), feature, canonical) ?? 0);
         let offset: [number, number];
@@ -564,12 +607,12 @@ class BasicRenderer extends Evented {
         return [offset[0] / ONE_EM * fontSize, offset[1] / ONE_EM * fontSize];
     }
 
-    _getTranslate(paint, property: 'text-translate' | 'icon-translate'): [number, number] {
+    _getTranslate(paint: any, property: 'text-translate' | 'icon-translate'): [number, number] {
         const translate = paint.get(property) ?? [0, 0];
         return [Number(translate[0]) || 0, Number(translate[1]) || 0];
     }
 
-    _getPadding(value): number {
+    _getPadding(value: any): number {
         const values = value?.values ?? value;
         if (Array.isArray(values)) {
             return Math.max(0, ...values.map(item => Number(item) || 0));
@@ -577,7 +620,14 @@ class BasicRenderer extends Evented {
         return Math.max(0, Number(values) || 0);
     }
 
-    _getLineGlyphPositions(tile, bucket, symbol, fontSize: number, keepUpright: boolean, maxAngle: number) {
+    _getLineGlyphPositions(
+        tile: any,
+        bucket: any,
+        symbol: any,
+        fontSize: number,
+        keepUpright: boolean,
+        maxAngle: number
+    ): Array<[number, number]> | undefined {
         const placedSymbolIndices = [
             symbol.centerJustifiedTextSymbolIndex,
             symbol.leftJustifiedTextSymbolIndex,
@@ -668,7 +718,7 @@ class BasicRenderer extends Evented {
         );
     }
 
-    _collectSymbols(tilesSpec, tiles): BasicRendererSymbol[] {
+    _collectSymbols(tilesSpec: BasicRendererTileSpec[], tiles: any[]): BasicRendererSymbol[] {
         if (this._textMode === 'maplibre') return [];
 
         const result: BasicRendererSymbol[] = [];
@@ -746,7 +796,7 @@ class BasicRenderer extends Evented {
                     // interpolates between fontSize and fontSizeNext in its
                     // vertex shader, which avoids re-shaping glyphs per frame.
                     let fontSizeNext = fontSize;
-                    const textSizeValue = layout.get('text-size') as any;
+                    const textSizeValue = layout.get('text-size');
                     const textSizeProperty = textSizeValue?.property;
                     if (textSizeProperty && typeof textSizeProperty.evaluate === 'function') {
                         const nextParameters = new EvaluationParameters(Math.min(canonical.z + 1, 24));
@@ -902,25 +952,25 @@ class BasicRenderer extends Evented {
       and that function must be called in order to get the promise as described above.
       This is useful for when you want to debounce a number of config changes and
       separate the enquing of changes from the actual execution of the changes. */
-    setPaintProperty(layer, prop, val, exec = true) {
+    setPaintProperty(layer: string, prop: string, val: any, exec: boolean = true): Promise<boolean> | (() => Promise<boolean>) {
         this._queuedConfigChanges.push(() =>
-            this._style.setPaintProperty(layer, prop, val)
+            this._style.setPaintProperty(layer, prop as keyof AllPaintProperties, val)
         );
         return exec
             ? this._processConfigQueue(++this._configId)
             : () => this._processConfigQueue(++this._configId);
     }
 
-    setLayoutProperty(layer, prop, val, exec = true) {
+    setLayoutProperty(layer: string, prop: string, val: any, exec: boolean = true): Promise<boolean> | (() => Promise<boolean>) {
         this._queuedConfigChanges.push(() =>
-            this._style.setLayoutProperty(layer, prop, val)
+            this._style.setLayoutProperty(layer, prop as keyof AllLayoutProperties, val)
         );
         return exec
             ? this._processConfigQueue(++this._configId)
             : () => this._processConfigQueue(++this._configId);
     }
 
-    setFilter(layer, filter, exec = true) {
+    setFilter(layer: string, filter: any, exec: boolean = true): Promise<boolean> | (() => Promise<boolean>) {
     // https://www.mapbox.com/mapbox-gl-js/style-spec/#types-filter
         this._queuedConfigChanges.push(() => this._style.setFilter(layer, filter));
         return exec
@@ -928,7 +978,7 @@ class BasicRenderer extends Evented {
             : () => this._processConfigQueue(++this._configId);
     }
 
-    _processConfigQueue(calledByConfigId) {
+    _processConfigQueue(calledByConfigId: number): Promise<boolean> {
     // only the most recently submitted configId is allowed to actually
     // trigger the changes, and will resolve to true. All the others will
     // resolve to false.
@@ -950,12 +1000,11 @@ class BasicRenderer extends Evented {
 
     // =============
 
-    getLayersVisible(zoom, source) {
+    getLayersVisible(zoom?: number, source?: string): string[] {
     // if zoom is provided will filter by min/max zoom as well as by layer visibility
     // and if source (string) is provided only style layers from that source will be returned.
         const layerStylesheetFromLayer = (layer) =>
-            layer &&
-      layer._eventedParent.stylesheet.layers.find((x) => x.id === layer.id);
+            layer?._eventedParent.stylesheet.layers.find((x) => x.id === layer.id);
 
         //return Object.keys(this._style._layers);
         // Get rid of filtering for now
@@ -977,29 +1026,29 @@ class BasicRenderer extends Evented {
         });
     }
 
-    getLayerOriginalFilter(layerName) {
+    getLayerOriginalFilter(layerName: string): any {
         const layer = this._initStyle.layers.find((lyr) => lyr.id === layerName);
-        return layer && layer.filter;
+        return layer?.filter;
     }
 
-    getLayerOriginalPaint(layerName) {
+    getLayerOriginalPaint(layerName: string): any {
         const layer = this._initStyle.layers.find((lyr) => lyr.id === layerName);
-        return layer && layer.paint;
+        return layer?.paint;
     }
 
-    getLayerOriginalLayout(layerName) {
+    getLayerOriginalLayout(layerName: string): any {
         const layer = this._initStyle.layers.find((lyr) => lyr.id === layerName);
-        return layer && layer.layout;
+        return layer?.layout;
     }
 
-    getVisibleSources(zoom) {
+    getVisibleSources(zoom?: number): string[] {
     // list of sources with style layers that are visible, optionaly using the zoom to refine the visibility
         return Object.keys(this._style.sourceCaches).filter(
             (s) => this.getLayersVisible(this.painter._filterForZoom, s).length > 0
         );
     }
 
-    filterForZoom(zoom) {
+    filterForZoom(zoom: number): void {
         if (zoom === this.painter._filterForZoom) {
             return;
         }
@@ -1009,13 +1058,13 @@ class BasicRenderer extends Evented {
         return;
     }
 
-    _cancelAllPendingRenders() {
+    _cancelAllPendingRenders(): void {
         this._pendingRenders.forEach(s => this._finishRender(s.tileSetID, s.renderId, 'canceled'));
         this._pendingRenders.clear();
         Object.values(this._style.sourceCaches).forEach((s: any) => s.invalidateAllLoadedTiles());
     }
 
-    _finishRender(tileSetID, renderId, err) {
+    _finishRender(tileSetID: string, renderId: number, err: string | null): void {
     // each consumer must call releaseRender at some point, either before this is called or after.
     // regardless of whether or not there was an error.
 
@@ -1030,7 +1079,10 @@ class BasicRenderer extends Evented {
         this._pendingRenders.delete(tileSetID);
     }
 
-    _canonicalizeSpec(tilesSpec, drawSpec) {
+    _canonicalizeSpec(
+        tilesSpec: BasicRendererTileSpec[],
+        drawSpec: BasicRendererDrawSpec
+    ): {tilesSpec: BasicRendererTileSpec[]; drawSpec: BasicRendererDrawSpec} {
     // we define the origin as the minimum left and top values mentioned in tileSpec/drawSpec
     // and adjust all the top/left values to use this reference.  This cannonicalization means
     // we can spot tile sets that are the same except for a gobal translation.
@@ -1063,7 +1115,7 @@ class BasicRenderer extends Evented {
         };
     }
 
-    _tileSpecToString(tilesSpec) {
+    _tileSpecToString(tilesSpec: BasicRendererTileSpec[]): string {
     // this is basically a stable JSON.stringify..could proably optimize this a bit if we really cared.
         return tilesSpec
             .map(
@@ -1073,7 +1125,7 @@ class BasicRenderer extends Evented {
             .join(' ');
     }
 
-    releaseRender(renderRef) {
+    releaseRender(renderRef: BasicRendererRenderRef): void {
     // call this when the rendered thing is no longer on screen (it could happen long after the render finishes, or before it finishes).
         const state = this._pendingRenders.get(renderRef.tileSetID);
         renderRef.tiles.forEach((t) => t.cache.releaseTile(t));
@@ -1091,7 +1143,12 @@ class BasicRenderer extends Evented {
 
     }
 
-    renderTiles(ctx, drawSpec, tilesSpec, next: BasicRendererRenderCallback) {
+    renderTiles(
+        ctx: CanvasRenderingContext2D,
+        drawSpec: BasicRendererDrawSpec,
+        tilesSpec: BasicRendererTileSpec[],
+        next: BasicRendererRenderCallback
+    ): BasicRendererRenderRef {
         // drawSpec has {destLeft,destTop,srcLeft,srcTop,width,height}
         // tilesSpec is an array of: {sourceName,z,x,y,left,top,size}
         // The tilesSpec defines how a selection of source tiles are rendered to an
@@ -1189,7 +1246,7 @@ class BasicRenderer extends Evented {
                     t.left = s.left;
                     t.top = s.top;
                     const mySource1 = this._style.sourceCaches[s.source];
-                    const mySource = mySource1 as unknown as BasicSourceCache;
+                    const mySource = mySource1;
                     mySource.currentlyRenderingTiles.push(t);
                 });
 
@@ -1312,21 +1369,21 @@ class BasicRenderer extends Evented {
                         relevantConsumers.forEach((c) => {
                             const srcLeft = Math.max(0, c.drawSpec.srcLeft - xx) | 0;
                             const srcRight =
-                    Math.min(
-                        OFFSCREEN_CANV_SIZE,
-                        c.drawSpec.srcLeft + c.drawSpec.width - xx
-                    ) | 0;
+                                Math.min(
+                                    OFFSCREEN_CANV_SIZE,
+                                    c.drawSpec.srcLeft + c.drawSpec.width - xx
+                                ) | 0;
                             const srcTop = Math.max(0, c.drawSpec.srcTop - yy) | 0;
                             const srcBottom =
-                    Math.min(
-                        OFFSCREEN_CANV_SIZE,
-                        c.drawSpec.srcTop + c.drawSpec.height - yy
-                    ) | 0;
+                                Math.min(
+                                    OFFSCREEN_CANV_SIZE,
+                                    c.drawSpec.srcTop + c.drawSpec.height - yy
+                                ) | 0;
                             const destLeft =
-                    c.drawSpec.destLeft +
+                                c.drawSpec.destLeft +
                     (c.drawSpec.srcLeft < xx ? xx - c.drawSpec.srcLeft : 0);
                             const destTop =
-                    c.drawSpec.destTop +
+                                c.drawSpec.destTop +
                     (c.drawSpec.srcTop < yy ? yy - c.drawSpec.srcTop : 0);
                             const width = srcRight - srcLeft;
                             const height = srcBottom - srcTop;
@@ -1404,7 +1461,7 @@ class BasicRenderer extends Evented {
     //     return featuresBySourceLayer;
     // }
 
-    showCanvasForDebug() {
+    showCanvasForDebug(): void {
         document.body.appendChild(this._canvas);
         this._canvas.style.position = 'fixed';
         this._canvas.style.bottom = '0px';
@@ -1413,7 +1470,7 @@ class BasicRenderer extends Evented {
         this._canvas.style.opacity = '0.7';
         this._canvas.style.transform = 'scale(0.5) translate(502px,502px)';
     }
-    destroyDebugCanvas() {
+    destroyDebugCanvas(): void {
         this._canvas.parentElement && document.body.removeChild(this._canvas);
     }
 

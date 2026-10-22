@@ -10,7 +10,7 @@ class BasicPainter extends Painter {
         super(gl);
         this._filterForZoom = 15;
     }
-    resize(width: number, height: number, pixelRatio: number) {
+    resize(width: number, height: number, pixelRatio: number): void {
         super.resize(width, height, pixelRatio);
     }
 
