@@ -1,7 +1,11 @@
 {
   "name": "maplibre-gl",
   "description": "BSD licensed community fork of mapbox-gl, a WebGL interactive maps library",
-  "version": "6.15.0",
+  "version": "6.15.0-hxgis.2",
+  "publishConfig": {
+    "registry": "https://repo.hxgis.com/repository/npm-hosted/",
+    "tag": "hxgis"
+  },
   "module": "dist/maplibre-gl.mjs",
   "style": "dist/maplibre-gl.css",
   "license": "BSD-3-Clause",
@@ -163,7 +167,10 @@
     "bench": "vitest bench --run --config vitest.config.bench.ts --reporter=verbose",
     "bench-e2e": "node test/bench/e2e/run.ts",
     "prepare": "npm run codegen",
-    "typecheck": "tsgo --noEmit && tsgo --project tsconfig.dist.json"
+    "typecheck": "tsgo --noEmit && tsgo --project tsconfig.dist.json",
+    "version:hxgis": "node build/publish-hxgis.ts --bump-only",
+    "publish:hxgis": "node build/publish-hxgis.ts",
+    "publish:hxgis:dry": "node build/publish-hxgis.ts --dry-run"
   },
   "files": [
     "build/",
